@@ -1,0 +1,10 @@
+apiVersion: app.example.com/v1
+kind: Example
+metadata:
+  name: example-resource
+  namespace: opentelemetry
+spec:
+  replicas: 2
+  image: quay.io/solo-io/echo-server:latest
+  host: my-host
+  enableIngress: true

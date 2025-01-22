@@ -1,0 +1,23 @@
+# permissions for end users to view examples.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: example-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: example-viewer-role
+rules:
+- apiGroups:
+  - app.example.com
+  resources:
+  - examples
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - app.example.com
+  resources:
+  - examples/status
+  verbs:
+  - get
