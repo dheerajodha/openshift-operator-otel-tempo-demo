@@ -35,8 +35,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	appv1 "github.com/otel-demo/example-operator/api/v1"
-	"github.com/otel-demo/example-operator/internal/controller"
+	appv1 "github.com/dheerajodha/openshift-operator-otel-tempo-demo/api/v1"
+	controllers "github.com/dheerajodha/openshift-operator-otel-tempo-demo/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 

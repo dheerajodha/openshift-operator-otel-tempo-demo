@@ -27,7 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	appv1 "github.com/otel-demo/example-operator/api/v1"
+	appv1 "github.com/dheerajodha/openshift-operator-otel-tempo-demo/api/v1"
 )
 
 var _ = Describe("Example Controller", func() {

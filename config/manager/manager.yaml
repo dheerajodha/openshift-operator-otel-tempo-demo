@@ -63,7 +63,7 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-        image: quay.io/djodha/hello-world-otel:example-operator-v2
+        image: quay.io/djodha/hello-world-otel:multiple-spans
         name: manager
         securityContext:
           allowPrivilegeEscalation: false

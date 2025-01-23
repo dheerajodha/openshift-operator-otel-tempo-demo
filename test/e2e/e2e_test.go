@@ -24,7 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/otel-demo/example-operator/test/utils"
+	"github.com/dheerajodha/openshift-operator-otel-tempo-demo/test/utils"
 )
 
 const namespace = "opentelemetry"

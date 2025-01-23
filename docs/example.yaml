@@ -6,5 +6,5 @@ metadata:
 spec:
   replicas: 2
   image: quay.io/solo-io/echo-server:latest
-  host: my-host
+  host: example-app.mydomain.com
   enableIngress: true

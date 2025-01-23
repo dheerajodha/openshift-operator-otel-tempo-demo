@@ -46,6 +46,24 @@ rules:
   verbs:
     - create
     - patch
+- apiGroups: [""]
+  resources:
+    - events
+    - services
+  verbs:
+    - create
+    - list
+    - patch
+    - watch
+- apiGroups:
+    - networking.k8s.io
+  resources:
+    - ingresses
+  verbs:
+    - create
+    - list
+    - patch
+    - watch
 - apiGroups:
   - apps
   resources:

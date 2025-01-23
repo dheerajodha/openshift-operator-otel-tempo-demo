@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	appv1 "github.com/otel-demo/example-operator/api/v1"
+	appv1 "github.com/dheerajodha/openshift-operator-otel-tempo-demo/api/v1"
 )
 
 type ExampleReconciler struct {
@@ -36,7 +36,7 @@ type ExampleReconciler struct {
 // initializeTracer sets up the OpenTelemetry tracer with a specified Tempo endpoint.
 func initializeTracer() trace.Tracer {
 	ctx := context.Background()
-	exporter, err := otlptracehttp.New(ctx, 
+	exporter, err := otlptracehttp.New(ctx,
 		otlptracehttp.WithEndpoint("opentelemetry-collector.opentelemetry.svc:4318"),
 		otlptracehttp.WithInsecure(),
 	)
@@ -71,20 +71,60 @@ func (r *ExampleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	log := log.FromContext(ctx)
 
-	// Fetch the Example instance
+	// Step 1: Fetch the Example instance
+	example, err := r.fetchExampleInstance(ctx, req)
+	if err != nil || example == nil {
+		return ctrl.Result{}, err
+	}
+
+	// Step 2: Create or update the Deployment
+	if err := r.reconcileDeployment(ctx, example, log); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Step 3: Create or update the Service
+	if err := r.reconcileService(ctx, example, log); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Step 4: Optionally create or update the Ingress
+	if example.Spec.EnableIngress {
+		if err := r.reconcileIngress(ctx, example, log); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Step 5: Update status
+	if err := r.updateStatus(ctx, example); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	span.AddEvent("Reconcile completed successfully")
+	return ctrl.Result{}, nil
+}
+
+func (r *ExampleReconciler) fetchExampleInstance(ctx context.Context, req ctrl.Request) (*appv1.Example, error) {
+	_, span := r.Tracer.Start(ctx, "Fetch Example Instance")
+	defer span.End()
+
 	example := &appv1.Example{}
 	if err := r.Get(ctx, req.NamespacedName, example); err != nil {
 		if errors.IsNotFound(err) {
 			span.AddEvent("Example resource not found")
-			return ctrl.Result{}, nil
+			return nil, nil
 		}
 		span.RecordError(err)
-		return ctrl.Result{}, err
+		return nil, err
 	}
 	span.SetAttributes(attribute.Int("example.spec.replicas", example.Spec.Replicas),
 		attribute.String("example.spec.image", example.Spec.Image))
+	return example, nil
+}
 
-	// Define a Deployment object
+func (r *ExampleReconciler) reconcileDeployment(ctx context.Context, example *appv1.Example, log logr.Logger) error {
+	_, span := r.Tracer.Start(ctx, "Reconcile Deployment")
+	defer span.End()
+
 	replicas := int32(example.Spec.Replicas)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -110,39 +150,40 @@ func (r *ExampleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 	}
 
-	// Set controller reference
 	if err := ctrl.SetControllerReference(example, deployment, r.Scheme); err != nil {
 		span.RecordError(err)
-		return ctrl.Result{}, err
+		return err
 	}
 
-	// Create or update Deployment
 	found := &appsv1.Deployment{}
 	if err := r.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, found); err != nil {
 		if errors.IsNotFound(err) {
 			span.AddEvent("Creating Deployment")
 			if err := r.Create(ctx, deployment); err != nil {
 				span.RecordError(err)
-				return ctrl.Result{}, err
+				return err
 			}
 			log.Info("Created Deployment", "name", deployment.Name)
 		} else {
 			span.RecordError(err)
-			return ctrl.Result{}, err
+			return err
 		}
-	} else {
-		if *found.Spec.Replicas != replicas || found.Spec.Template.Spec.Containers[0].Image != example.Spec.Image {
-			span.AddEvent("Updating Deployment")
-			found.Spec = deployment.Spec
-			if err := r.Update(ctx, found); err != nil {
-				span.RecordError(err)
-				return ctrl.Result{}, err
-			}
-			log.Info("Updated Deployment", "name", deployment.Name)
+	} else if *found.Spec.Replicas != replicas || found.Spec.Template.Spec.Containers[0].Image != example.Spec.Image {
+		span.AddEvent("Updating Deployment")
+		found.Spec = deployment.Spec
+		if err := r.Update(ctx, found); err != nil {
+			span.RecordError(err)
+			return err
 		}
+		log.Info("Updated Deployment", "name", deployment.Name)
 	}
+	return nil
+}
 
-	// Expose the application via a Service
+func (r *ExampleReconciler) reconcileService(ctx context.Context, example *appv1.Example, log logr.Logger) error {
+	_, span := r.Tracer.Start(ctx, "Reconcile Service")
+	defer span.End()
+
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-" + example.Name + "-service",
@@ -158,98 +199,104 @@ func (r *ExampleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 	}
 
-	span.AddEvent("Creating or updating Service")
 	foundService := &corev1.Service{}
 	if err := r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, foundService); err != nil {
 		if errors.IsNotFound(err) {
+			span.AddEvent("Creating Service")
 			if err := r.Create(ctx, service); err != nil {
 				span.RecordError(err)
-				return ctrl.Result{}, err
+				return err
 			}
 			log.Info("Created Service", "name", service.Name)
 		} else {
 			span.RecordError(err)
-			return ctrl.Result{}, err
+			return err
 		}
-	} else {
-		if !equalServices(service, foundService) {
-			foundService.Spec = service.Spec
-			if err := r.Update(ctx, foundService); err != nil {
-				span.RecordError(err)
-				return ctrl.Result{}, err
-			}
-			log.Info("Updated Service", "name", service.Name)
+	} else if !equalServices(service, foundService) {
+		foundService.Spec = service.Spec
+		if err := r.Update(ctx, foundService); err != nil {
+			span.RecordError(err)
+			return err
 		}
+		log.Info("Updated Service", "name", service.Name)
 	}
+	return nil
+}
 
-	// Optional: Expose via Ingress
-	if example.Spec.EnableIngress {
-		pathTypePrefix := networkingv1.PathTypePrefix // Assign the constant to a variable
-		ingress := &networkingv1.Ingress{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-" + example.Name + "-ingress",
-				Namespace: example.Namespace,
-			},
-			Spec: networkingv1.IngressSpec{
-				Rules: []networkingv1.IngressRule{{
-					Host: example.Spec.Host,
-					IngressRuleValue: networkingv1.IngressRuleValue{
-						HTTP: &networkingv1.HTTPIngressRuleValue{
-							Paths: []networkingv1.HTTPIngressPath{{
-								Path:     "/",
-								PathType: &pathTypePrefix,
-								Backend: networkingv1.IngressBackend{
-									Service: &networkingv1.IngressServiceBackend{
-										Name: service.Name,
-										Port: networkingv1.ServiceBackendPort{
-											Number: 80,
-										},
-									},
+func (r *ExampleReconciler) reconcileIngress(ctx context.Context, example *appv1.Example, log logr.Logger) error {
+	_, span := r.Tracer.Start(ctx, "Reconcile Ingress")
+	defer span.End()
+
+	pathTypePrefix := networkingv1.PathTypePrefix
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-" + example.Name + "-ingress",
+			Namespace: example.Namespace,
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{{
+				Host: example.Spec.Host,
+				IngressRuleValue: networkingv1.IngressRuleValue{
+					HTTP: &networkingv1.HTTPIngressRuleValue{
+						Paths: []networkingv1.HTTPIngressPath{{
+							Path:     "/",
+							PathType: &pathTypePrefix,
+							Backend: networkingv1.IngressBackend{
+								Service: &networkingv1.IngressServiceBackend{
+									Name: "test-" + example.Name + "-service",
+									Port: networkingv1.ServiceBackendPort{Number: 80},
 								},
-							}},
-						},
+							},
+						}},
 					},
-				}},
-			},
-		}
-
-		span.AddEvent("Creating or updating Ingress")
-		foundIngress := &networkingv1.Ingress{}
-		if err := r.Get(ctx, types.NamespacedName{Name: ingress.Name, Namespace: ingress.Namespace}, foundIngress); err != nil {
-			if errors.IsNotFound(err) {
-				if err := r.Create(ctx, ingress); err != nil {
-					span.RecordError(err)
-					return ctrl.Result{}, err
-				}
-				log.Info("Created Ingress", "name", ingress.Name)
-			} else {
-				span.RecordError(err)
-				return ctrl.Result{}, err
-			}
-		} else {
-			if !equalIngresses(ingress.Spec, foundIngress.Spec) {
-				foundIngress.Spec = ingress.Spec
-				if err := r.Update(ctx, foundIngress); err != nil {
-					span.RecordError(err)
-					return ctrl.Result{}, err
-				}
-				log.Info("Updated Ingress", "name", ingress.Name)
-			}
-		}
+				},
+			}},
+		},
 	}
 
-	// Update status
+	foundIngress := &networkingv1.Ingress{}
+	if err := r.Get(ctx, types.NamespacedName{Name: ingress.Name, Namespace: ingress.Namespace}, foundIngress); err != nil {
+		if errors.IsNotFound(err) {
+			span.AddEvent("Creating Ingress")
+			if err := r.Create(ctx, ingress); err != nil {
+				span.RecordError(err)
+				return err
+			}
+			log.Info("Created Ingress", "name", ingress.Name)
+		} else {
+			span.RecordError(err)
+			return err
+		}
+	} else if !equalIngresses(ingress.Spec, foundIngress.Spec) {
+		foundIngress.Spec = ingress.Spec
+		if err := r.Update(ctx, foundIngress); err != nil {
+			span.RecordError(err)
+			return err
+		}
+		log.Info("Updated Ingress", "name", ingress.Name)
+	}
+	return nil
+}
+
+func (r *ExampleReconciler) updateStatus(ctx context.Context, example *appv1.Example) error {
+	_, span := r.Tracer.Start(ctx, "Update Status")
+	defer span.End()
+
+	found := &appsv1.Deployment{}
+	if err := r.Get(ctx, types.NamespacedName{Name: "test-" + example.Name, Namespace: example.Namespace}, found); err != nil {
+		span.RecordError(err)
+		return err
+	}
+
 	if found.Status.AvailableReplicas != example.Status.AvailableReplicas {
-		span.AddEvent("Updating status", trace.WithAttributes(attribute.Int("availableReplicas", int(found.Status.AvailableReplicas))))
 		example.Status.AvailableReplicas = found.Status.AvailableReplicas
+		span.AddEvent("Updating status", trace.WithAttributes(attribute.Int("availableReplicas", int(found.Status.AvailableReplicas))))
 		if err := r.Status().Update(ctx, example); err != nil {
 			span.RecordError(err)
-			return ctrl.Result{}, err
+			return err
 		}
 	}
-
-	span.AddEvent("Reconcile completed successfully")
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // Helper functions to compare specs for equality

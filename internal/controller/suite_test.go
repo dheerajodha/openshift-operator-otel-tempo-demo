@@ -33,7 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	appv1 "github.com/otel-demo/example-operator/api/v1"
+	appv1 "github.com/dheerajodha/openshift-operator-otel-tempo-demo/api/v1"
 	// +kubebuilder:scaffold:imports
 )
 
